@@ -37,7 +37,7 @@ public class CollectionBasedMulti<T> extends AbstractMulti<T> {
         actual.onSubscribe(new CollectionSubscription<>(actual, collection));
     }
 
-    private static final class CollectionSubscription<T> implements Subscription {
+    public static final class CollectionSubscription<T> implements Subscription {
 
         private final MultiSubscriber<? super T> downstream;
         private final List<T> collection; // Immutable

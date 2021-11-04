@@ -14,6 +14,7 @@ import io.smallrye.mutiny.helpers.ParameterValidation;
 import io.smallrye.mutiny.helpers.Subscriptions;
 import io.smallrye.mutiny.helpers.queues.Queues;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
+import io.smallrye.mutiny.operators.multi.builders.CollectionBasedMulti;
 import io.smallrye.mutiny.subscription.BackPressureFailure;
 import io.smallrye.mutiny.subscription.MultiSubscriber;
 
@@ -326,6 +327,14 @@ public final class MultiFlatMapOp<I, O> extends AbstractMultiOperator<I, O> {
                 }
                 if (r != 0L && !noSources) {
 
+                    if (upstream instanceof CollectionBasedMulti.CollectionSubscription) {
+                        for (int k = 0; k < n; k++) {
+                            FlatMapInner<O> innerQ = as[k];
+                            if (innerQ != null && innerQ.queue != null) {
+                                System.out.printf("Stream #%d queue size: %d\n", innerQ.index, innerQ.queue.size());
+                            }
+                        }
+                    }
                     int j = lastIndex;
                     for (int i = 0; i < n; i++) {
                         if (cancelled) {
@@ -342,7 +351,7 @@ public final class MultiFlatMapOp<I, O> extends AbstractMultiOperator<I, O> {
                                 again = true;
                                 replenishMain++;
                             } else if (q != null) {
-                                while (e != r) {
+                                while (e != r && e != limit) {
                                     d = inner.done;
 
                                     O v;
@@ -377,7 +386,7 @@ public final class MultiFlatMapOp<I, O> extends AbstractMultiOperator<I, O> {
                                     e++;
                                 }
 
-                                if (e == r) {
+                                if (e == r || e == limit) {
                                     d = inner.done;
                                     boolean empty = q.isEmpty();
                                     if (d && empty) {
@@ -387,6 +396,9 @@ public final class MultiFlatMapOp<I, O> extends AbstractMultiOperator<I, O> {
                                     }
                                 }
 
+                                if (upstream instanceof CollectionBasedMulti.CollectionSubscription) {
+                                    System.out.printf("Stream #%d emitted %d out of %d requests\n", inner.index, e, requests);
+                                }
                                 if (e != 0L) {
                                     if (!inner.done) {
                                         inner.request(e);

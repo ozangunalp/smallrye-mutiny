@@ -7,13 +7,21 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceAccessMode;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -39,6 +47,55 @@ public class UniOnFailureRetryTest {
 
         await().until(() -> counter.intValue() == 0);
         assertThat(failure.get()).isNotNull();
+    }
+
+    @RepeatedTest(1000)
+    public void testFailing() {
+        AtomicBoolean serverStarted = new AtomicBoolean(false);
+        int parallel = 32;
+
+        ScheduledExecutorService serverExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            var t = new Thread(r);
+            t.setName("server");
+            return t;
+        });
+        ExecutorService driverExecutor = Executors.newWorkStealingPool(16);
+        ExecutorService clientExecutor = Executors.newFixedThreadPool(parallel);
+        serverExecutor.schedule(() -> serverStarted.set(true), 3000, TimeUnit.MILLISECONDS);
+
+        List<Future<String>> futures = new ArrayList<>(parallel);
+        for (int i = 0; i < parallel; i++) {
+            int j = i;
+            futures.add(clientExecutor.submit(() -> {
+                String response = helloServer(serverStarted)
+                        .emitOn(driverExecutor)
+                        .log("Request #" + j)
+                        .stage(UniOnFailureRetryTest::applyRetryPolicy)
+                        .await().indefinitely();
+                return response;
+            }));
+        }
+        for (int i = 0; i < parallel; i++) {
+            assertThat(futures.get(i))
+                    .describedAs("Request #" + i)
+                    .succeedsWithin(20, TimeUnit.SECONDS)
+                    .isEqualTo("Hello");
+        }
+    }
+
+    Uni<String> helloServer(AtomicBoolean b) {
+        return Uni.createFrom().emitter(e -> {
+            if (b.get()) {
+                e.complete("Hello");
+            } else {
+                e.fail(new Throwable("Cause failure"));
+            }
+        });
+    }
+
+    private static <T> Uni<T> applyRetryPolicy(Uni<T> uni) {
+        return uni.onFailure(throwable -> throwable.getMessage().contains("Cause")).retry()
+                .withBackOff(Duration.ofSeconds(1), Duration.ofSeconds(2)).indefinitely();
     }
 
     @Test

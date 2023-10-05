@@ -94,6 +94,7 @@ public class MultiConcatMapOp<I, O> extends AbstractMultiOperator<I, O> {
         @Override
         public void request(long n) {
             if (n > 0) {
+                System.out.println("request " + n);
                 if (state.compareAndSet(STATE_NEW, STATE_READY)) {
                     upstream.request(1);
                 }

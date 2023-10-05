@@ -46,7 +46,8 @@ public class ExponentialBackoff {
                     } else {
                         Duration delay = getNextDelay(firstBackoff, maxBackoff, jitterFactor, iteration);
                         return Uni.createFrom().item((long) iteration).onItem().delayIt()
-                                .onExecutor(executor).by(delay);
+                                .onExecutor(executor).by(delay)
+                                .log(failure.getMessage() + " RETRY " + iteration);
                     }
                 }).concatenate();
     }
